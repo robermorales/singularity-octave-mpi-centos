@@ -1,0 +1,18 @@
+sudo: required
+env:
+  global:
+    - OS="centos"
+    - BOX="docker run --privileged -v `pwd`:/pwd/ robermorales/singularity-$OS"
+services:
+  - docker
+install:
+  - $BOX singularity create -s 4000 image.img
+  - $BOX singularity bootstrap      image.img    singularity.def
+script:
+  - $BOX singularity test           image.img
+after_script:
+  - $BOX             lz4            image.img    image.img.lz4
+  - $BOX             sha512sum      image.img* > sha512sums
+  - $BOX             rm -f          image.img
+addons:
+  artifacts: true

@@ -1,0 +1,86 @@
+BootStrap: yum
+OSVersion: 7
+MirrorURL: http://mirror.centos.org/centos-%{OSVERSION}/%{OSVERSION}/os/$basearch/
+Include: yum
+# UpdateURL: http://mirror.centos.org/centos-%{OSVERSION}/%{OSVERSION}/updates/$basearch/
+
+%runscript
+
+export LD_CUSTOM_PATH=/usr/local/lib:/usr/local/lib/openmpi
+export LD_LIBRARY_PATH=$LD_CUSTOM_PATH:$LD_LIBRARY_PATH
+export LD_RUN_PATH=$LD_CUSTOM_PATH:$LD_RUN_PATH
+
+eval "$@"
+
+%test
+
+export LD_CUSTOM_PATH=/usr/local/lib:/usr/local/lib/openmpi
+export LD_LIBRARY_PATH=$LD_CUSTOM_PATH:$LD_LIBRARY_PATH
+export LD_RUN_PATH=$LD_CUSTOM_PATH:$LD_RUN_PATH
+
+mpirun --version
+mpirun --allow-run-as-root echo hello
+
+cat > pingpong.cpp <<- EOF
+
+#include <mpi.h>
+#include <iostream>
+
+int main(int argc, char *argv[])
+{
+               MPI_Init( &argc, &argv );
+  int tasks;   MPI_Comm_size( MPI_COMM_WORLD, &tasks );
+  int task_id; MPI_Comm_rank( MPI_COMM_WORLD, &task_id );
+  int recv;
+
+  if( task_id == 0 ) {
+    for( int i = 1; i < tasks; i ++ ) {
+      MPI_Send( &i, 1, MPI_INT, i, 0, MPI_COMM_WORLD );
+      MPI_Recv( &recv, 1, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE );
+      std::cout << "ping " << i << " pong " << recv << " !\n\n";
+    }
+  } else {
+    MPI_Recv( &recv, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE );
+    MPI_Send( &recv, 1, MPI_INT, 0, 0, MPI_COMM_WORLD );
+  }
+
+  MPI_Finalize();
+}
+EOF
+
+mpic++ pingpong.cpp -o pingpong++
+mpirun --allow-run-as-root ./pingpong++
+
+octave-cli --eval 'ver'
+mpirun --allow-run-as-root octave-cli -q --eval 'pkg load mpi; Pi();'
+
+%post
+
+yum install -y epel-release
+yum install -y octave octave-devel
+OCTAVE_VERSION=`octave-cli --eval version|tail -1|cut -d\  -f3`
+touch /usr/share/octave/$OCTAVE_VERSION/etc/built-in-docstrings
+
+yum install -y git mercurial autoconf libtool flex unzip make
+
+ompi=ompi
+cd
+git clone https://github.com/open-mpi/ompi.git $ompi
+cd $ompi
+./autogen.pl                                                     > ompi-install.log
+./configure --prefix=/usr/local --enable-shared --enable-static >> ompi-install.log
+make -j5                                                        >> ompi-install.log
+make install                                                    >> ompi-install.log
+
+export LD_CUSTOM_PATH=/usr/local/lib:/usr/local/lib/openmpi
+export LD_LIBRARY_PATH=$LD_CUSTOM_PATH:$LD_LIBRARY_PATH
+export LD_RUN_PATH=$LD_CUSTOM_PATH:$LD_RUN_PATH
+
+octavempi=octavempi
+cd
+hg clone http://hg.code.sf.net/p/octave/mpi $octavempi
+cd $octavempi
+hg archive ../mpi.zip
+octave-cli --eval 'pkg install ../mpi.zip'
+
+exit
